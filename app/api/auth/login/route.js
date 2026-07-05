@@ -22,6 +22,10 @@ export async function POST(req) {
     setSessionCookie(token);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: "Login failed. Check server config." }, { status: 500 });
+    console.error("login failed:", e);
+    const msg = !process.env.POSTGRES_URL
+      ? "Database not configured: POSTGRES_URL is missing. Connect a Postgres store to this project and redeploy."
+      : "Login failed: " + (e?.message || "unknown database error");
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
