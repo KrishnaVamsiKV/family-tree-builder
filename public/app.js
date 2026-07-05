@@ -1391,6 +1391,8 @@
 
   // ---------- Init ----------
   loadFromServer().then(() => {
+    const loading = document.getElementById("loading");
+    if (loading) loading.remove();
     render();
     fit();
     setSaveStatus("saved");
