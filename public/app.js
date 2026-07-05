@@ -6,7 +6,8 @@
   const STORE_KEY = "familyTree.v1";
   let state = { people: {}, nextId: 1 };
   let selectedId = null;      // person open in editor
-  let linkMode = null;        // { type: 'parent'|'child'|'spouse'|'link', sourceId }
+  let editSnapshot = null;    // JSON of state when the editor opened (for cancel/revert)
+  let cardMenu = null;        // the open card context menu element, if any
   const view = { x: 40, y: 40, scale: 1 };
 
   const el = {
@@ -616,8 +617,7 @@
       card.appendChild(text);
       card.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (linkMode) { completeLink(p.id); return; }
-        openEditor(p.id);
+        showCardMenu(p.id, card);
       });
       el.nodes.appendChild(card);
     });
@@ -765,6 +765,7 @@
   let panning = false, panStart = null;
   el.stage.addEventListener("mousedown", (e) => {
     if (e.target.closest(".card") || e.target.closest("#zoombar")) return;
+    closeCardMenu();
     panning = true;
     panStart = { x: e.clientX - view.x, y: e.clientY - view.y };
     el.stage.classList.add("panning");
@@ -778,6 +779,7 @@
   window.addEventListener("mouseup", () => { panning = false; el.stage.classList.remove("panning"); });
   el.stage.addEventListener("wheel", (e) => {
     e.preventDefault();
+    closeCardMenu();
     zoomAt(e.deltaY < 0 ? 1.1 : 0.9, e.clientX, e.clientY);
   }, { passive: false });
 
@@ -827,23 +829,58 @@
   });
 
   el.stage.addEventListener("click", (e) => {
-    if (e.target === el.stage || e.target === el.canvas) {
-      if (linkMode) cancelLink();
-      else closeEditor();
-    }
+    if (e.target === el.stage || e.target === el.canvas) closeCardMenu();
   });
+  // Any click that isn't on a card or the menu itself dismisses the menu.
+  // (Card clicks and menu-button clicks call stopPropagation, so they don't
+  // bubble here and the just-opened menu survives.)
+  window.addEventListener("click", () => closeCardMenu());
 
   document.getElementById("zoomIn").onclick = () => { const r = el.stage.getBoundingClientRect(); zoomAt(1.15, r.left + r.width/2, r.top + r.height/2); };
   document.getElementById("zoomOut").onclick = () => { const r = el.stage.getBoundingClientRect(); zoomAt(0.87, r.left + r.width/2, r.top + r.height/2); };
   document.getElementById("zoomReset").onclick = fit;
   document.getElementById("fitBtn").onclick = fit;
 
+  // ---------- Card context menu ----------
+  // Clicking a card opens a small menu; the sidebar only opens once an action
+  // is chosen.
+  function closeCardMenu() { if (cardMenu) { cardMenu.remove(); cardMenu = null; } }
+  function showCardMenu(id, cardEl) {
+    closeCardMenu();
+    const menu = document.createElement("div");
+    menu.className = "card-menu";
+    [
+      ["Edit details", () => beginEdit(id)],
+      ["Add partner", () => beginCreate("spouse", id)],
+      ["Add child", () => beginCreate("child", id)],
+      ["Add parent", () => beginCreate("parent", id)],
+    ].forEach(([label, fn]) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.addEventListener("click", (e) => { e.stopPropagation(); closeCardMenu(); fn(); });
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    cardMenu = menu;
+    // position under the card, clamped to the viewport (flip above if needed)
+    const r = cardEl.getBoundingClientRect();
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    let left = r.left + r.width / 2 - mw / 2;
+    let top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = r.top - mh - 6;
+    left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+    top = Math.max(8, top);
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+  }
+
   // ---------- Editor ----------
-  function openEditor(id) {
-    selectedId = id;
+  // Edits are a draft: opening snapshots the tree, changes preview live, and
+  // are persisted only when Save is clicked. Cancel/close reverts to the
+  // snapshot (so an unsaved newly-added person disappears).
+  function populateForm(id) {
     const p = state.people[id];
     if (!p) return;
-    el.panelTitle.textContent = "Edit person";
     f.name.value = p.name || "";
     f.birth.value = p.birth || "";
     f.death.value = p.death || "";
@@ -851,14 +888,53 @@
     f.notes.value = p.notes || "";
     updatePhotoPreview(p);
     updateRelHint();
+  }
+  function beginEdit(id) {
+    discardDraft();
+    editSnapshot = JSON.stringify(state);
+    selectedId = id;
+    el.panelTitle.textContent = "Edit details";
+    populateForm(id);
+    el.panel.classList.add("open");
+    render();
+    f.name.focus();
+  }
+  // type: 'person' (standalone) | 'parent' | 'child' | 'spouse'
+  function beginCreate(type, sourceId) {
+    discardDraft();
+    editSnapshot = JSON.stringify(state);
+    const label = type === "spouse" ? "New partner" : type === "child" ? "New child"
+      : type === "parent" ? "New parent" : "New person";
+    const np = newPerson({ name: label });
+    if (sourceId && state.people[sourceId]) applyRelation(type, sourceId, np.id);
+    selectedId = np.id;
+    el.panelTitle.textContent = type === "person" ? "Add person"
+      : type === "spouse" ? "Add partner" : "Add " + type;
+    populateForm(np.id);
     el.panel.classList.add("open");
     render();
     f.name.focus();
     f.name.select();
   }
-  function closeEditor() {
+  function closeEditor() {            // close without reverting (draft already resolved)
     selectedId = null;
+    editSnapshot = null;
     el.panel.classList.remove("open");
+  }
+  function discardDraft() {           // restore the pre-edit snapshot, if any
+    if (editSnapshot !== null) { state = JSON.parse(editSnapshot); editSnapshot = null; }
+  }
+  function saveEdit() {
+    if (!selectedId) return;
+    readForm();
+    editSnapshot = null;             // committing — nothing to revert
+    save();
+    closeEditor();
+    render();
+  }
+  function cancelEdit() {
+    discardDraft();
+    closeEditor();
     render();
   }
   function updateRelHint() {
@@ -871,7 +947,7 @@
     if (parents.length) parts.push("Parents: " + parents.join(", "));
     if (spouses.length) parts.push("Partner: " + spouses.join(", "));
     if (kids.length) parts.push("Children: " + kids.join(", "));
-    el.relHint.textContent = parts.length ? parts.join("  ·  ") : "No relationships yet. Use the buttons above to connect this person.";
+    el.relHint.textContent = parts.length ? parts.join("  ·  ") : "No relationships yet. Close this and use a card's menu (Add partner / child / parent) to connect people.";
   }
   function nameOf(id) { return state.people[id] ? (state.people[id].name || "Unnamed") : ""; }
 
@@ -937,8 +1013,7 @@
         const { url } = await res.json();
         const p = state.people[targetId];
         if (!p) return done();
-        p.photo = url;
-        save();
+        p.photo = url;               // part of the draft; persisted on Save
         if (selectedId === targetId) updatePhotoPreview(p);
         render();
       } catch (err) {
@@ -949,87 +1024,40 @@
   el.photoRemove.onclick = () => {
     const p = state.people[selectedId];
     if (!p) return;
-    delete p.photo;
-    save();
+    delete p.photo;                  // part of the draft; persisted on Save
     updatePhotoPreview(p);
     render();
   };
 
-  document.getElementById("saveBtn").onclick = () => { readForm(); save(); render(); flashPanel(); };
-  document.getElementById("panelClose").onclick = () => { readForm(); save(); closeEditor(); };
+  document.getElementById("saveBtn").onclick = saveEdit;
+  document.getElementById("panelClose").onclick = cancelEdit;
   document.getElementById("deleteBtn").onclick = () => {
     const p = state.people[selectedId];
     if (!p) return;
     if (confirm(`Delete “${p.name}”? This removes them from the tree.`)) {
       removePerson(selectedId);
+      editSnapshot = null;           // deletion is intentional; don't revert it
       save();
       closeEditor();
+      render();
     }
   };
-  // Auto-save edits to fields on the fly
-  [f.name, f.birth, f.death, f.gender, f.notes].forEach((inp) =>
-    inp.addEventListener("change", () => { readForm(); save(); render(); }));
+  // Live preview while editing — changes are persisted only on Save.
+  [f.name, f.birth, f.death, f.notes].forEach((inp) =>
+    inp.addEventListener("input", () => { readForm(); render(); }));
+  f.gender.addEventListener("change", () => { readForm(); render(); });
 
-  function flashPanel() {
-    el.panel.animate(
-      [{ boxShadow: "-2px 0 0 3px var(--accent)" }, { boxShadow: "-2px 0 12px rgba(60,50,30,0.12)" }],
-      { duration: 500 }
-    );
-  }
-
-  // ---------- Relationship building ----------
-  document.getElementById("relParent").onclick = () => startLink("parent");
-  document.getElementById("relChild").onclick = () => startLink("child");
-  document.getElementById("relSpouse").onclick = () => startLink("spouse");
-  document.getElementById("relLink").onclick = () => startLink("link");
-
-  function startLink(type) {
-    readForm();
-    const src = selectedId;
-    if (!src) return;
-
-    if (type === "link") {
-      linkMode = { type: "link", sourceId: src };
-      el.relHint.textContent = "Click another card to link. Then you'll choose how they're related. (Click empty space to cancel.)";
-      el.panel.classList.remove("open");
-      return;
-    }
-    // create a fresh relative immediately
-    const np = newPerson({ name: "New " + type });
-    applyRelation(type, src, np.id);
-    save();
-    openEditor(np.id);
-  }
-
+  // ---------- Relationships ----------
+  // src's parent = other; src's child = other; src's partner = other.
   function applyRelation(type, srcId, otherId) {
     if (type === "parent") addParentRelation(srcId, otherId);
     else if (type === "child") addParentRelation(otherId, srcId);
     else if (type === "spouse") linkSpouses(srcId, otherId);
   }
 
-  function completeLink(targetId) {
-    const src = linkMode.sourceId;
-    linkMode = null;
-    el.panel.classList.add("open");
-    if (targetId === src) { updateRelHint(); return; }
-    const rel = prompt(
-      `How is “${nameOf(targetId)}” related to “${nameOf(src)}”?\n` +
-      "Type:  parent  /  child  /  partner", "parent");
-    if (!rel) { updateRelHint(); return; }
-    const r = rel.trim().toLowerCase();
-    if (r.startsWith("parent")) applyRelation("parent", src, targetId);
-    else if (r.startsWith("child")) applyRelation("child", src, targetId);
-    else if (r.startsWith("partner") || r.startsWith("spouse")) applyRelation("spouse", src, targetId);
-    save();
-    openEditor(src);
-  }
-  function cancelLink() { linkMode = null; el.panel.classList.add("open"); updateRelHint(); }
-
   // ---------- Toolbar ----------
-  document.getElementById("addBtn").onclick = () => {
-    const p = newPerson({ name: "New person" });
-    save();
-    openEditor(p.id);
+  document.getElementById("addFirstBtn").onclick = () => {
+    beginCreate("person", null);
     setTimeout(fit, 0);
   };
   document.getElementById("clearBtn").onclick = () => {
@@ -1312,8 +1340,8 @@
 
   // ---------- Keyboard ----------
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { if (linkMode) cancelLink(); else closeEditor(); }
-    if (e.key === "Enter" && (e.target === f.name)) document.getElementById("saveBtn").click();
+    if (e.key === "Escape") { if (cardMenu) closeCardMenu(); else cancelEdit(); }
+    if (e.key === "Enter" && (e.target === f.name)) saveEdit();
   });
 
   // ---------- Logout ----------

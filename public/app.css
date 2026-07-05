@@ -253,3 +253,36 @@
 @media (max-width: 640px) {
   input, select, textarea { font-size: 16px; }
 }
+
+/* ---------- Card context menu ---------- */
+.card-menu {
+  position: fixed;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid #e0d8c7;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(60,50,30,0.22);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  animation: cardMenuIn 0.1s ease-out;
+}
+@keyframes cardMenuIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.card-menu button {
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.card-menu button:first-child { font-weight: 600; }
+.card-menu button:hover { background: var(--accent-soft); }
+@media (max-width: 640px) {
+  .card-menu button { padding: 12px 14px; font-size: 15px; }
+  .card-menu { min-width: 172px; }
+}
