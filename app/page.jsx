@@ -1,6 +1,6 @@
 import Script from "next/script";
 import { redirect } from "next/navigation";
-import { getSession } from "../lib/auth";
+import { getSession } from "../lib/session";
 import { MARKUP } from "../lib/markup";
 
 export const dynamic = "force-dynamic";

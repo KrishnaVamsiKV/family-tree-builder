@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureSchema, sql } from "../../../lib/db";
-import { getSession } from "../../../lib/auth";
+import { getSession } from "../../../lib/session";
 
 export const runtime = "nodejs";
 
