@@ -256,6 +256,12 @@
     });
 
     // Ordered units per depth. A unit = [id] or [id, partnerId].
+    // Seed couples with the male on the left (crossing minimization may still
+    // flip them later, but a final cost-neutral pass restores male-left).
+    const maleLeft = (a, b) => {
+      const ga = state.people[a].gender, gb = state.people[b].gender;
+      return (gb === "male" && ga !== "male") ? [b, a] : [a, b];
+    };
     const maxDepth = Math.max(...members.map((p) => depth[p.id]));
     const unitsByDepth = {};
     const seenUnit = new Set();
@@ -264,7 +270,7 @@
       (byDepth[d] || []).forEach((id) => {
         if (seenUnit.has(id)) return;
         if (partnerOf[id]) {
-          units.push([id, partnerOf[id]]);
+          units.push(maleLeft(id, partnerOf[id]));
           seenUnit.add(id); seenUnit.add(partnerOf[id]);
         } else {
           units.push([id]);
@@ -496,6 +502,20 @@
         }
         if (!moved) break;
       }
+
+      // 2e. Put the male on the left within each couple where it costs nothing:
+      //     crossing minimization above may have flipped a couple, so flip it
+      //     back to male-left unless that would add a crossing.
+      for (let d = 0; d <= maxDepth; d++) {
+        unitsByDepth[d].forEach((u) => {
+          if (u.length !== 2) return;
+          const gL = state.people[u[0]].gender, gR = state.people[u[1]].gender;
+          if (!(gR === "male" && gL !== "male")) return; // already male-left (or no male)
+          const before = rowCost(d);
+          u.reverse();
+          if (rowCost(d) > before) u.reverse(); // keep as-is if flipping hurts
+        });
+      }
     }
 
     // Initial pack: left to right per generation.
@@ -592,6 +612,7 @@
       const pos = layout.pos[p.id];
       if (!pos) return;
       const card = document.createElement("div");
+      card.dataset.id = p.id;
       card.className = "card " + (p.gender === "male" ? "male" : p.gender === "female" ? "female" : "");
       if (p.id === selectedId) card.classList.add("selected");
       card.style.left = pos.x + "px";
@@ -617,7 +638,15 @@
       card.appendChild(text);
       card.addEventListener("click", (e) => {
         e.stopPropagation();
-        showCardMenu(p.id, card);
+        // Clicking a card closes the sidebar. cancelEdit() re-renders and
+        // detaches this card element, so re-fetch the fresh one to anchor the
+        // menu against a node that's actually in the DOM.
+        let anchor = card;
+        if (el.panel.classList.contains("open")) {
+          cancelEdit();
+          anchor = el.nodes.querySelector('[data-id="' + p.id + '"]') || card;
+        }
+        showCardMenu(p.id, anchor);
       });
       el.nodes.appendChild(card);
     });
@@ -831,10 +860,15 @@
   el.stage.addEventListener("click", (e) => {
     if (e.target === el.stage || e.target === el.canvas) closeCardMenu();
   });
-  // Any click that isn't on a card or the menu itself dismisses the menu.
-  // (Card clicks and menu-button clicks call stopPropagation, so they don't
-  // bubble here and the just-opened menu survives.)
-  window.addEventListener("click", () => closeCardMenu());
+  // Any click that isn't on a card or the menu itself dismisses the menu, and
+  // any click outside the sidebar closes (cancels) it. (Card clicks and
+  // menu-button clicks call stopPropagation, so they don't bubble here: the
+  // just-opened menu/panel survives, and the card handler closes the sidebar
+  // itself before opening its menu.)
+  window.addEventListener("click", (e) => {
+    closeCardMenu();
+    if (el.panel.classList.contains("open") && !e.target.closest("#panel")) cancelEdit();
+  });
 
   document.getElementById("zoomIn").onclick = () => { const r = el.stage.getBoundingClientRect(); zoomAt(1.15, r.left + r.width/2, r.top + r.height/2); };
   document.getElementById("zoomOut").onclick = () => { const r = el.stage.getBoundingClientRect(); zoomAt(0.87, r.left + r.width/2, r.top + r.height/2); };
@@ -851,7 +885,7 @@
     menu.className = "card-menu";
     [
       ["Edit details", () => beginEdit(id)],
-      ["Add partner", () => beginCreate("spouse", id)],
+      ["Add spouse", () => beginCreate("spouse", id)],
       ["Add child", () => beginCreate("child", id)],
       ["Add parent", () => beginCreate("parent", id)],
     ].forEach(([label, fn]) => {
@@ -903,13 +937,13 @@
   function beginCreate(type, sourceId) {
     discardDraft();
     editSnapshot = JSON.stringify(state);
-    const label = type === "spouse" ? "New partner" : type === "child" ? "New child"
+    const label = type === "spouse" ? "New spouse" : type === "child" ? "New child"
       : type === "parent" ? "New parent" : "New person";
     const np = newPerson({ name: label });
     if (sourceId && state.people[sourceId]) applyRelation(type, sourceId, np.id);
     selectedId = np.id;
     el.panelTitle.textContent = type === "person" ? "Add person"
-      : type === "spouse" ? "Add partner" : "Add " + type;
+      : type === "spouse" ? "Add spouse" : "Add " + type;
     populateForm(np.id);
     el.panel.classList.add("open");
     render();
@@ -945,9 +979,9 @@
     const kids = childrenOf(p.id).map((c) => c.name);
     const parts = [];
     if (parents.length) parts.push("Parents: " + parents.join(", "));
-    if (spouses.length) parts.push("Partner: " + spouses.join(", "));
+    if (spouses.length) parts.push("Spouse: " + spouses.join(", "));
     if (kids.length) parts.push("Children: " + kids.join(", "));
-    el.relHint.textContent = parts.length ? parts.join("  ·  ") : "No relationships yet. Close this and use a card's menu (Add partner / child / parent) to connect people.";
+    el.relHint.textContent = parts.length ? parts.join("  ·  ") : "No relationships yet. Close this and use a card's menu (Add spouse / child / parent) to connect people.";
   }
   function nameOf(id) { return state.people[id] ? (state.people[id].name || "Unnamed") : ""; }
 
