@@ -1,9 +1,9 @@
 # Family Tree Builder — cloud web app
 
 Next.js app for Vercel. Username/password auth, per-user tree stored in Vercel
-Postgres, photos stored in Vercel Blob. The tree UI is the same engine as the
-standalone `../index.html`, with persistence swapped from `localStorage` to the
-server (`public/app.js`, `lib/markup.js`).
+Postgres, photos stored in Vercel Blob. The tree UI/engine lives in
+`public/app.js` (+ `public/app.css`, markup in `lib/markup.js`) and persists to
+the server via the API routes.
 
 ## Architecture
 
