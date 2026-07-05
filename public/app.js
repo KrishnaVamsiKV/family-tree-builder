@@ -1043,7 +1043,10 @@
       try {
         const res = await fetch("/api/photo", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob });
         if (res.status === 401) return redirectToLogin();
-        if (!res.ok) throw new Error("upload failed");
+        if (!res.ok) {
+          const info = await res.json().catch(() => ({}));
+          throw new Error(info.error || ("HTTP " + res.status));
+        }
         const { url } = await res.json();
         const p = state.people[targetId];
         if (!p) return done();
@@ -1051,7 +1054,7 @@
         if (selectedId === targetId) updatePhotoPreview(p);
         render();
       } catch (err) {
-        alert("Photo upload failed. Please try again.");
+        alert("Photo upload failed: " + (err && err.message ? err.message : err));
       } finally { done(); }
     });
   };
