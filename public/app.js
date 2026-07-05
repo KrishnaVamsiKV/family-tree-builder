@@ -780,6 +780,52 @@
     e.preventDefault();
     zoomAt(e.deltaY < 0 ? 1.1 : 0.9, e.clientX, e.clientY);
   }, { passive: false });
+
+  // Touch: one finger pans, two fingers pinch-zoom (and pan by the midpoint).
+  let touchMode = null, pinchPrevDist = 0, pinchPrevMid = null;
+  const tDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const tMid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+  el.stage.addEventListener("touchstart", (e) => {
+    if (e.target.closest("#zoombar") || e.target.closest("#panel")) return;
+    if (e.touches.length === 1) {
+      if (e.target.closest(".card")) { touchMode = null; return; } // let taps select
+      touchMode = "pan";
+      panStart = { x: e.touches[0].clientX - view.x, y: e.touches[0].clientY - view.y };
+    } else if (e.touches.length === 2) {
+      touchMode = "pinch";
+      pinchPrevDist = tDist(e.touches);
+      pinchPrevMid = tMid(e.touches);
+      e.preventDefault();
+    }
+  }, { passive: false });
+  el.stage.addEventListener("touchmove", (e) => {
+    if (touchMode === "pan" && e.touches.length === 1) {
+      view.x = e.touches[0].clientX - panStart.x;
+      view.y = e.touches[0].clientY - panStart.y;
+      applyView();
+      e.preventDefault();
+    } else if (touchMode === "pinch" && e.touches.length === 2) {
+      const rect = el.stage.getBoundingClientRect();
+      const dist = tDist(e.touches), mid = tMid(e.touches);
+      const ns = Math.min(2.2, Math.max(0.25, view.scale * dist / pinchPrevDist));
+      const ax = pinchPrevMid.x - rect.left, ay = pinchPrevMid.y - rect.top;
+      const wx = (ax - view.x) / view.scale, wy = (ay - view.y) / view.scale;
+      view.scale = ns;
+      view.x = ax - wx * ns + (mid.x - pinchPrevMid.x);
+      view.y = ay - wy * ns + (mid.y - pinchPrevMid.y);
+      pinchPrevDist = dist; pinchPrevMid = mid;
+      applyView();
+      e.preventDefault();
+    }
+  }, { passive: false });
+  el.stage.addEventListener("touchend", (e) => {
+    if (e.touches.length === 0) { touchMode = null; }
+    else if (e.touches.length === 1) { // pinch -> pan handoff
+      touchMode = "pan";
+      panStart = { x: e.touches[0].clientX - view.x, y: e.touches[0].clientY - view.y };
+    }
+  });
+
   el.stage.addEventListener("click", (e) => {
     if (e.target === el.stage || e.target === el.canvas) {
       if (linkMode) cancelLink();

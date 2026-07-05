@@ -219,3 +219,37 @@
 .save-status[data-state="error"] { color: #a5423a; }
 .save-status[data-state="saved"] { color: var(--accent); }
 #app-root { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+/* ---------- Touch + mobile responsive ---------- */
+#stage { touch-action: none; } /* let JS handle pan/pinch, not the browser */
+
+@media (max-width: 640px) {
+  header {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+    padding: 8px 10px;
+    scrollbar-width: none;
+  }
+  header::-webkit-scrollbar { display: none; }
+  header .logo { font-size: 19px; }
+  header h1 { font-size: 15px; white-space: nowrap; }
+  header .spacer { display: none; }        /* let the toolbar scroll instead */
+  header button { padding: 8px 11px; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
+  .save-status { display: none; }
+
+  /* editor becomes a full-width sheet */
+  #panel { width: 100%; box-shadow: none; }
+
+  /* larger, thumb-friendly zoom controls, clear of the editor sheet */
+  #zoombar { left: 10px; bottom: 10px; }
+  #zoombar button { width: 42px; padding: 9px 0; font-size: 17px; }
+
+  #empty { padding: 0 24px; }
+}
+
+/* Prevent iOS from zooming the page when focusing inputs (needs >=16px). */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}
